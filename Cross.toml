@@ -29,7 +29,9 @@ passthrough = [
 [target.aarch64-unknown-linux-gnu]
 # Use cross's default image with proper ARM toolchain
 image = "ghcr.io/cross-rs/aarch64-unknown-linux-gnu:main"
-pre-build = []
+pre-build = [
+    "dpkg --add-architecture arm64 && apt-get update && apt-get install -y libdbus-1-dev:arm64 pkg-config",
+]
 
 [target.aarch64-unknown-linux-gnu.env]
 passthrough = [
