@@ -93,8 +93,17 @@ pub struct P2pConfig {
     ///
     /// This controls the bounded `mpsc` buffer that reader tasks push into.
     /// Higher values allow more in-flight messages before back-pressure is applied.
-    /// Default: 256.
+    /// Default: [`Self::DEFAULT_DATA_CHANNEL_CAPACITY`].
     pub data_channel_capacity: usize,
+
+    /// Maximum application-layer message size in bytes.
+    ///
+    /// Internally tunes QUIC stream flow control (`stream_receive_window`) and
+    /// the per-stream read buffer so that a single message of this size can be
+    /// transmitted without being rejected by the transport layer.
+    ///
+    /// Default: [`Self::DEFAULT_MAX_MESSAGE_SIZE`] (1 MiB).
+    pub max_message_size: usize,
 }
 // v0.13.0: enable_coordinator removed - all nodes are coordinators
 
@@ -247,6 +256,7 @@ impl Default for P2pConfig {
             bootstrap_cache: BootstrapCacheConfig::default(),
             transport_registry: TransportRegistry::new(),
             data_channel_capacity: Self::DEFAULT_DATA_CHANNEL_CAPACITY,
+            max_message_size: Self::DEFAULT_MAX_MESSAGE_SIZE,
         }
     }
 }
@@ -254,6 +264,9 @@ impl Default for P2pConfig {
 impl P2pConfig {
     /// Default capacity of the data channel between reader tasks and `recv()`.
     pub const DEFAULT_DATA_CHANNEL_CAPACITY: usize = 256;
+
+    /// Default maximum message size (1 MiB).
+    pub const DEFAULT_MAX_MESSAGE_SIZE: usize = 1024 * 1024;
 
     /// Create a new configuration builder
     pub fn builder() -> P2pConfigBuilder {
@@ -285,6 +298,7 @@ impl P2pConfig {
             identity_key: None,
             allow_ipv4_mapped: true, // Required for dual-stack socket support
             transport_registry: Some(Arc::new(self.transport_registry.clone())),
+            max_message_size: self.max_message_size,
         }
     }
 
@@ -319,6 +333,7 @@ pub struct P2pConfigBuilder {
     bootstrap_cache: Option<BootstrapCacheConfig>,
     transport_registry: Option<TransportRegistry>,
     data_channel_capacity: Option<usize>,
+    max_message_size: Option<usize>,
 }
 
 /// Error type for configuration validation
@@ -331,6 +346,10 @@ pub enum ConfigError {
     /// Invalid timeout value
     #[error("Invalid timeout: {0}")]
     InvalidTimeout(String),
+
+    /// Invalid max message size
+    #[error("max_message_size must be at least 1")]
+    InvalidMaxMessageSize,
 
     /// PQC configuration error
     #[error("PQC configuration error: {0}")]
@@ -632,12 +651,28 @@ impl P2pConfigBuilder {
         self
     }
 
+    /// Set the maximum application-layer message size in bytes.
+    ///
+    /// Internally tunes QUIC stream flow control and read buffers.
+    pub fn max_message_size(mut self, bytes: usize) -> Self {
+        self.max_message_size = Some(bytes);
+        self
+    }
+
     /// Build the configuration with validation
     pub fn build(self) -> Result<P2pConfig, ConfigError> {
         // Validate max_connections
         let max_connections = self.max_connections.unwrap_or(256);
         if max_connections == 0 {
             return Err(ConfigError::InvalidMaxConnections);
+        }
+
+        // Validate max_message_size
+        let max_message_size = self
+            .max_message_size
+            .unwrap_or(P2pConfig::DEFAULT_MAX_MESSAGE_SIZE);
+        if max_message_size == 0 {
+            return Err(ConfigError::InvalidMaxMessageSize);
         }
 
         // v0.13.0+: No role validation - all nodes are symmetric
@@ -659,6 +694,7 @@ impl P2pConfigBuilder {
             data_channel_capacity: self
                 .data_channel_capacity
                 .unwrap_or(P2pConfig::DEFAULT_DATA_CHANNEL_CAPACITY),
+            max_message_size,
         })
     }
 }
@@ -860,6 +896,55 @@ mod tests {
         let result = P2pConfig::builder().max_connections(0).build();
 
         assert!(matches!(result, Err(ConfigError::InvalidMaxConnections)));
+    }
+
+    #[test]
+    fn test_invalid_max_message_size() {
+        let result = P2pConfig::builder().max_message_size(0).build();
+
+        assert!(matches!(result, Err(ConfigError::InvalidMaxMessageSize)));
+    }
+
+    #[test]
+    fn test_max_message_size_default() {
+        let config = P2pConfig::default();
+        assert_eq!(config.max_message_size, P2pConfig::DEFAULT_MAX_MESSAGE_SIZE);
+    }
+
+    #[test]
+    fn test_max_message_size_builder() {
+        let config = P2pConfig::builder()
+            .max_message_size(4 * 1024 * 1024)
+            .build()
+            .expect("Failed to build config");
+
+        assert_eq!(config.max_message_size, 4 * 1024 * 1024);
+    }
+
+    #[test]
+    fn test_max_message_size_propagates_to_nat_config() {
+        let config = P2pConfig::builder()
+            .max_message_size(2 * 1024 * 1024)
+            .build()
+            .expect("Failed to build config");
+
+        let nat_config = config.to_nat_config();
+        assert_eq!(nat_config.max_message_size, 2 * 1024 * 1024);
+    }
+
+    #[test]
+    fn test_max_message_size_minimum_accepted() {
+        let config = P2pConfig::builder()
+            .max_message_size(1)
+            .build()
+            .expect("size of 1 should be valid");
+        assert_eq!(config.max_message_size, 1);
+    }
+
+    #[test]
+    fn test_max_message_size_builder_default() {
+        let config = P2pConfig::builder().build().expect("default should work");
+        assert_eq!(config.max_message_size, P2pConfig::DEFAULT_MAX_MESSAGE_SIZE);
     }
 
     #[test]
