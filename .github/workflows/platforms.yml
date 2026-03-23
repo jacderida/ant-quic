@@ -144,6 +144,8 @@ jobs:
       - name: Test (cross)
         if: matrix.cross == true && !contains(matrix.target, 'apple')
         shell: bash
+        env:
+          TMPDIR: /tmp
         run: cross test --target ${{ matrix.target }} --lib --all-features -- --skip long_ --skip stress_ --skip performance_
 
       - name: Build examples
