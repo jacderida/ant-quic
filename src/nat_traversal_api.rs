@@ -401,6 +401,13 @@ pub struct NatTraversalConfig {
     /// # Added in Version 0.6.1
     /// Enhanced security through automatic random port selection
     pub bind_addr: Option<SocketAddr>,
+    /// Additional bound addresses for dual-stack nodes.
+    ///
+    /// When using separate IPv4/IPv6 sockets, the primary `bind_addr` is typically
+    /// the IPv6 address, and this field holds the IPv4 address (or vice versa).
+    /// These are added as local NAT traversal candidates so peers can reach us
+    /// via either address family.
+    pub additional_bind_addrs: Vec<SocketAddr>,
     /// Prefer RFC-compliant NAT traversal frame format
     /// When true, will send RFC-compliant frames if the peer supports it
     pub prefer_rfc_nat_traversal: bool,
@@ -1041,6 +1048,7 @@ impl Default for NatTraversalConfig {
             relay_nodes: Vec::new(),
             max_concurrent_attempts: 3,
             bind_addr: None,
+            additional_bind_addrs: Vec::new(),
             prefer_rfc_nat_traversal: true, // Default to RFC format for standards compliance
             // v0.13.0+: PQC is ALWAYS enabled - default to PqcConfig::default()
             // This ensures non-PQC handshakes cannot happen
@@ -1247,14 +1255,21 @@ impl NatTraversalEndpoint {
         let (inner_endpoint, event_tx, event_rx, local_addr) =
             Self::create_inner_endpoint(&config, token_store, registry_ref, None).await?;
 
-        // Update discovery manager with the actual bound address
+        // Update discovery manager with the actual bound address and any additional addresses
         {
-            // parking_lot::Mutex doesn't poison - no need for map_err
             let mut discovery = discovery_manager.lock();
             discovery.set_bound_address(local_addr);
+            for &extra_addr in &config.additional_bind_addrs {
+                discovery.add_additional_bound_address(extra_addr);
+                info!(
+                    "Added dual-stack address {} to discovery candidates",
+                    extra_addr
+                );
+            }
             info!(
-                "Updated discovery manager with bound address: {}",
-                local_addr
+                "Updated discovery manager with bound address: {} (+{} additional)",
+                local_addr,
+                config.additional_bind_addrs.len()
             );
         }
 
@@ -1691,14 +1706,21 @@ impl NatTraversalEndpoint {
                 .await?
         };
 
-        // Update discovery manager with the actual bound address
+        // Update discovery manager with the actual bound address and any additional addresses
         {
-            // parking_lot::Mutex doesn't poison - no need for map_err
             let mut discovery = discovery_manager.lock();
             discovery.set_bound_address(local_addr);
+            for &extra_addr in &config.additional_bind_addrs {
+                discovery.add_additional_bound_address(extra_addr);
+                info!(
+                    "Added dual-stack address {} to discovery candidates",
+                    extra_addr
+                );
+            }
             info!(
-                "Updated discovery manager with bound address: {}",
-                local_addr
+                "Updated discovery manager with bound address: {} (+{} additional)",
+                local_addr,
+                config.additional_bind_addrs.len()
             );
         }
 

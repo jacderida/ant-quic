@@ -715,6 +715,12 @@ impl P2pEndpoint {
                 nat_config.transport_registry = Some(Arc::new(transport_registry));
                 nat_config.bind_addr = Some(actual_bind_addr);
 
+                // Add the other address family to additional_bind_addrs for discovery
+                // Primary is IPv6 (from local_addr()), so add IPv4 as additional
+                if let Some(v4_addr) = v4_addr {
+                    nat_config.additional_bind_addrs.push(v4_addr);
+                }
+
                 let abs_socket: std::sync::Arc<dyn AsyncUdpSocket> = dual_socket.clone();
                 _dual_stack_ref = Some(dual_socket);
 

@@ -107,6 +107,7 @@ mod nat_traversal_api_tests {
             transport_registry: None,
             max_message_size: ant_quic::P2pConfig::DEFAULT_MAX_MESSAGE_SIZE,
             max_concurrent_uni_streams: 100,
+            additional_bind_addrs: Vec::new(),
         };
 
         assert_eq!(config.known_peers.len(), 1);
@@ -243,6 +244,7 @@ mod functional_tests {
             transport_registry: None,
             max_message_size: ant_quic::P2pConfig::DEFAULT_MAX_MESSAGE_SIZE,
             max_concurrent_uni_streams: 100,
+            additional_bind_addrs: Vec::new(),
         };
 
         // May fail due to zero values or other validation
@@ -269,6 +271,7 @@ mod functional_tests {
             transport_registry: None,
             max_message_size: ant_quic::P2pConfig::DEFAULT_MAX_MESSAGE_SIZE,
             max_concurrent_uni_streams: 100,
+            additional_bind_addrs: Vec::new(),
         };
 
         let result = NatTraversalEndpoint::new(valid_config, None, None).await;
@@ -455,6 +458,7 @@ mod performance_tests {
                 transport_registry: None,
                 max_message_size: ant_quic::P2pConfig::DEFAULT_MAX_MESSAGE_SIZE,
                 max_concurrent_uni_streams: 100,
+                additional_bind_addrs: Vec::new(),
             };
 
             // Use the config to prevent optimization
@@ -525,6 +529,7 @@ mod relay_functionality_tests {
             transport_registry: None,
             max_message_size: ant_quic::P2pConfig::DEFAULT_MAX_MESSAGE_SIZE,
             max_concurrent_uni_streams: 100,
+            additional_bind_addrs: Vec::new(),
         };
 
         // This might be accepted or rejected depending on implementation

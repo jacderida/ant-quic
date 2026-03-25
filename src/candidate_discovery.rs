@@ -198,6 +198,9 @@ pub struct CandidateDiscoveryManager {
     active_sessions: HashMap<PeerId, DiscoverySession>,
     /// Cached local interface results (shared across all sessions)
     cached_local_candidates: Option<(Instant, Vec<ValidatedCandidate>)>,
+    /// Additional bound addresses for dual-stack nodes (e.g., the IPv4 address
+    /// when the primary bound_address is IPv6)
+    additional_bound_addresses: Vec<SocketAddr>,
 }
 
 /// Configuration for candidate discovery behavior
@@ -663,6 +666,7 @@ impl CandidateDiscoveryManager {
             interface_discovery,
             active_sessions: HashMap::new(),
             cached_local_candidates: None,
+            additional_bound_addresses: Vec::new(),
         }
     }
 
@@ -670,6 +674,16 @@ impl CandidateDiscoveryManager {
     pub fn set_bound_address(&mut self, address: SocketAddr) {
         self.config.bound_address = Some(address);
         // Clear cached local candidates to force refresh with new bound address
+        self.cached_local_candidates = None;
+    }
+
+    /// Set additional bound addresses for dual-stack nodes.
+    ///
+    /// When a node binds separate IPv4 and IPv6 sockets, the primary
+    /// `bound_address` is set to the IPv6 address (for endpoint compatibility),
+    /// and this method adds the IPv4 address as an additional candidate.
+    pub fn add_additional_bound_address(&mut self, address: SocketAddr) {
+        self.additional_bound_addresses.push(address);
         self.cached_local_candidates = None;
     }
 
@@ -874,6 +888,34 @@ impl CandidateDiscoveryManager {
                                 debug!(
                                     "Added bound address {} as local candidate for peer {:?}",
                                     bound_addr, peer_id
+                                );
+                            }
+                        }
+                    }
+
+                    // Add additional bound addresses (dual-stack: IPv4 when primary is IPv6)
+                    for &extra_addr in &self.additional_bound_addresses {
+                        if self.is_valid_local_address(&extra_addr) || extra_addr.ip().is_loopback()
+                        {
+                            let candidate = DiscoveryCandidate {
+                                address: extra_addr,
+                                priority: 59000, // Slightly lower than primary bound address
+                                source: DiscoverySourceType::Local,
+                                state: CandidateState::New,
+                            };
+
+                            if let Some(session) = self.active_sessions.get_mut(&peer_id) {
+                                session.discovered_candidates.push(candidate.clone());
+                                session.statistics.local_candidates_found += 1;
+                                candidates_added += 1;
+
+                                all_events.push(DiscoveryEvent::LocalCandidateDiscovered {
+                                    candidate: candidate.to_candidate_address(),
+                                });
+
+                                debug!(
+                                    "Added dual-stack address {} as local candidate for peer {:?}",
+                                    extra_addr, peer_id
                                 );
                             }
                         }

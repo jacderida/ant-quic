@@ -320,6 +320,7 @@ impl P2pConfig {
             transport_registry: Some(Arc::new(self.transport_registry.clone())),
             max_message_size: self.max_message_size,
             max_concurrent_uni_streams: self.max_concurrent_uni_streams,
+            additional_bind_addrs: Vec::new(),
         }
     }
 
