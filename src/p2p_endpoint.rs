@@ -670,25 +670,57 @@ impl P2pEndpoint {
         // Create token store
         let token_store = Arc::new(BootstrapTokenStore::new(bootstrap_cache.clone()).await);
 
-        // Phase 5.3 Deliverable 3: Socket sharing in default constructor
-        // Bind a single UDP socket and share it between transport registry and Quinn
-        let default_addr: std::net::SocketAddr =
+        // Socket sharing: bind a single UDP socket shared between transport registry and Quinn.
+        // Default to [::]:0 (IPv6 dual-stack) which accepts both IPv4 and IPv6 connections
+        // on a single socket via IPV6_V6ONLY=0. Falls back to 0.0.0.0:0 if IPv6 unavailable.
+        let dual_stack_default: std::net::SocketAddr =
+            std::net::SocketAddr::new(std::net::IpAddr::V6(std::net::Ipv6Addr::UNSPECIFIED), 0);
+        let ipv4_fallback: std::net::SocketAddr =
             std::net::SocketAddr::new(std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED), 0);
         let bind_addr = config
             .bind_addr
             .as_ref()
             .and_then(|addr| addr.as_socket_addr())
-            .unwrap_or(default_addr);
+            .unwrap_or(dual_stack_default);
+        // Try the requested bind address first. If using the dual-stack default and it fails
+        // (e.g. IPv6 not available on this system), fall back to IPv4.
         let (udp_transport, quinn_socket) =
-            crate::transport::UdpTransport::bind_for_quinn(bind_addr)
-                .await
-                .map_err(|e| EndpointError::Config(format!("Failed to bind UDP socket: {e}")))?;
+            match crate::transport::UdpTransport::bind_for_quinn(bind_addr).await {
+                Ok(result) => result,
+                Err(e) if bind_addr == dual_stack_default => {
+                    info!(
+                        "Dual-stack bind to [::]:0 failed ({}), falling back to IPv4 0.0.0.0:0",
+                        e
+                    );
+                    crate::transport::UdpTransport::bind_for_quinn(ipv4_fallback)
+                        .await
+                        .map_err(|e2| {
+                            EndpointError::Config(format!(
+                                "Failed to bind UDP socket (IPv6: {e}, IPv4: {e2})"
+                            ))
+                        })?
+                }
+                Err(e) => {
+                    return Err(EndpointError::Config(format!(
+                        "Failed to bind UDP socket: {e}"
+                    )));
+                }
+            };
 
         let actual_bind_addr = quinn_socket
             .local_addr()
             .map_err(|e| EndpointError::Config(format!("Failed to get local address: {e}")))?;
 
-        info!("Bound shared UDP socket at {}", actual_bind_addr);
+        let is_dual_stack = actual_bind_addr.is_ipv6();
+        info!(
+            "Bound shared UDP socket at {} ({})",
+            actual_bind_addr,
+            if is_dual_stack {
+                "dual-stack IPv4+IPv6"
+            } else {
+                "IPv4 only"
+            }
+        );
 
         // Create transport registry with the UDP transport
         // Also include any additional transports from the config

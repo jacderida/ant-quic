@@ -74,10 +74,20 @@ async fn test_transport_registry_flows_from_node_config_to_p2p_endpoint() {
         !registry.is_empty(),
         "Registry should not be empty after wiring"
     );
-    assert_eq!(registry.len(), 1, "Registry should have 1 provider");
+    // The registry contains our externally-registered provider PLUS the internal
+    // UDP transport created by P2pEndpoint for Quinn socket sharing.
+    assert_eq!(
+        registry.len(),
+        2,
+        "Registry should have 2 providers (internal + external)"
+    );
 
     let udp_providers = registry.providers_by_type(TransportType::Udp);
-    assert_eq!(udp_providers.len(), 1, "Should have 1 UDP provider");
+    assert_eq!(
+        udp_providers.len(),
+        2,
+        "Should have 2 UDP providers (internal + external)"
+    );
 
     // Cleanup
     node.shutdown().await;
@@ -116,9 +126,13 @@ async fn test_multiple_transport_providers_flow() {
         .await
         .expect("Node::with_config should succeed");
 
-    // Verify both providers are in the registry
+    // Verify both providers are in the registry (+ the internal UDP transport = 3 total)
     let registry = node.transport_registry();
-    assert_eq!(registry.len(), 2, "Registry should have 2 providers");
+    assert_eq!(
+        registry.len(),
+        3,
+        "Registry should have 3 providers (internal + 2 external)"
+    );
 
     node.shutdown().await;
 }
@@ -196,9 +210,14 @@ async fn test_transport_registry_flows_to_nat_traversal_endpoint() {
         .expect("Node::with_config should succeed");
 
     // Verify registry is accessible from Node (Phase 1.1 - already working)
+    // Registry has our external provider + the internal UDP transport from P2pEndpoint
     let registry = node.transport_registry();
     assert!(!registry.is_empty(), "Registry should not be empty");
-    assert_eq!(registry.len(), 1, "Registry should have 1 provider");
+    assert_eq!(
+        registry.len(),
+        2,
+        "Registry should have 2 providers (internal + external)"
+    );
 
     // Verify P2pConfig's to_nat_config() correctly passes the registry
     // This is the key Phase 1.2 wiring - P2pConfig must include transport_registry
@@ -369,12 +388,12 @@ async fn test_multi_transport_concurrent_io() {
         .await
         .expect("Failed to create node1");
 
-    // Verify node1 has both transports
+    // Verify node1 has both external transports + the internal UDP transport
     let node1_registry = node1.transport_registry();
     assert_eq!(
         node1_registry.len(),
-        2,
-        "Node1 should have 2 transports registered"
+        3,
+        "Node1 should have 3 transports registered (internal UDP + external UDP + BLE)"
     );
 
     // Create node2 with the same transports
@@ -390,8 +409,8 @@ async fn test_multi_transport_concurrent_io() {
     let node2_registry = node2.transport_registry();
     assert_eq!(
         node2_registry.len(),
-        2,
-        "Node2 should have 2 transports registered"
+        3,
+        "Node2 should have 3 transports registered (internal UDP + external UDP + BLE)"
     );
 
     // Step 3: Verify transport capabilities and stats
@@ -400,12 +419,13 @@ async fn test_multi_transport_concurrent_io() {
     println!("Node2 local address: {:?}", node2.local_addr());
 
     // Verify both nodes can access their transport providers
+    // 2 UDP providers: the internal one from P2pEndpoint + the external one we registered
     let node1_udp_providers = node1_registry.providers_by_type(TransportType::Udp);
     let node1_ble_providers = node1_registry.providers_by_type(TransportType::Ble);
     assert_eq!(
         node1_udp_providers.len(),
-        1,
-        "Node1 should have access to UDP transport"
+        2,
+        "Node1 should have 2 UDP transports (internal + external)"
     );
     assert_eq!(
         node1_ble_providers.len(),
@@ -417,8 +437,8 @@ async fn test_multi_transport_concurrent_io() {
     let node2_ble_providers = node2_registry.providers_by_type(TransportType::Ble);
     assert_eq!(
         node2_udp_providers.len(),
-        1,
-        "Node2 should have access to UDP transport"
+        2,
+        "Node2 should have 2 UDP transports (internal + external)"
     );
     assert_eq!(
         node2_ble_providers.len(),
@@ -492,10 +512,11 @@ async fn test_multi_transport_concurrent_io() {
     tokio::time::sleep(Duration::from_millis(100)).await; // Give time for state to propagate
 
     // Final verification: Check online providers count
+    // 2 UDP transports remain online: internal (from P2pEndpoint) + external
     let online_count = node1_registry.online_providers().count();
     assert_eq!(
-        online_count, 1,
-        "Only 1 transport (UDP) should be online after BLE shutdown"
+        online_count, 2,
+        "2 transports (internal + external UDP) should be online after BLE shutdown"
     );
 
     // Cleanup
