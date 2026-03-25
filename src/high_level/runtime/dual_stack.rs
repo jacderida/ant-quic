@@ -16,7 +16,7 @@
 use std::{
     fmt,
     io::{self, IoSliceMut},
-    net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6},
+    net::{SocketAddr, SocketAddrV4, SocketAddrV6},
     pin::Pin,
     sync::{
         Arc,
@@ -27,7 +27,7 @@ use std::{
 
 use quinn_udp::{RecvMeta, Transmit};
 use tokio::io::ReadBuf;
-use tracing::{debug, info};
+use tracing::debug;
 
 use super::{AsyncUdpSocket, UdpPollHelper, UdpPoller};
 
@@ -321,6 +321,8 @@ fn to_mapped_v6(v4: SocketAddrV4) -> SocketAddrV6 {
 pub fn create_dual_stack_sockets(
     port: u16,
 ) -> io::Result<(Option<std::net::UdpSocket>, Option<std::net::UdpSocket>)> {
+    use tracing::info;
+
     let mut v6_result = None;
     let mut v4_result = None;
     let mut actual_port = port;
@@ -397,7 +399,7 @@ fn create_v6_socket(port: u16) -> io::Result<std::net::UdpSocket> {
     let _ = socket.set_send_buffer_size(buffer_size);
     let _ = socket.set_recv_buffer_size(buffer_size);
 
-    let addr = SocketAddrV6::new(Ipv6Addr::UNSPECIFIED, port, 0, 0);
+    let addr = SocketAddrV6::new(std::net::Ipv6Addr::UNSPECIFIED, port, 0, 0);
     socket.bind(&socket2::SockAddr::from(addr))?;
     Ok(socket.into())
 }
@@ -413,7 +415,7 @@ fn create_v4_socket(port: u16) -> io::Result<std::net::UdpSocket> {
     let _ = socket.set_send_buffer_size(buffer_size);
     let _ = socket.set_recv_buffer_size(buffer_size);
 
-    let addr = SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, port);
+    let addr = SocketAddrV4::new(std::net::Ipv4Addr::UNSPECIFIED, port);
     socket.bind(&socket2::SockAddr::from(addr))?;
     Ok(socket.into())
 }
@@ -468,6 +470,7 @@ pub fn wrap_dual_stack(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::net::Ipv4Addr;
 
     #[test]
     fn test_to_mapped_v6() {

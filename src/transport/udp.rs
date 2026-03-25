@@ -184,6 +184,7 @@ impl UdpTransport {
 
         // Clone for the transport's tokio socket
         let transport_clone = registry_socket.try_clone()?;
+        transport_clone.set_nonblocking(true)?;
         let tokio_socket = UdpSocket::from_std(transport_clone)?;
         let local_addr = tokio_socket.local_addr()?;
 
