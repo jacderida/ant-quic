@@ -2665,10 +2665,18 @@ impl P2pEndpoint {
             peer_id
         });
 
-        self.reader_handles
-            .write()
-            .await
-            .insert(peer_id, abort_handle);
+        // Abort any existing reader task for this peer before inserting the new one.
+        // Without this, reconnections leave zombie reader tasks on dead connections
+        // that never deliver data, causing send_direct() to succeed but recv() to hang.
+        let mut handles = self.reader_handles.write().await;
+        if let Some(old_handle) = handles.remove(&peer_id) {
+            tracing::debug!(
+                "Aborting previous reader task for peer {:?} (connection replaced)",
+                peer_id
+            );
+            old_handle.abort();
+        }
+        handles.insert(peer_id, abort_handle);
     }
 
     /// Spawn a single background task that polls constrained transport events
